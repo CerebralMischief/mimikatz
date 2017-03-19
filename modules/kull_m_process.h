@@ -5,6 +5,8 @@
 */
 #pragma once
 #include "globals.h"
+#include <userenv.h>
+#include "kull_m_memory.h"
 #include "kull_m_string.h"
 
 #ifdef _M_X64
@@ -186,7 +188,9 @@ typedef enum _KWAIT_REASON {
 } KWAIT_REASON;
 
 typedef struct _SYSTEM_THREAD {
+#ifndef _M_X64
 	LARGE_INTEGER KernelTime;
+#endif
 	LARGE_INTEGER UserTime;
 	LARGE_INTEGER CreateTime;
 	ULONG WaitTime;
@@ -197,7 +201,24 @@ typedef struct _SYSTEM_THREAD {
 	ULONG ContextSwitchCount;
 	ULONG State;
 	KWAIT_REASON WaitReason;
+#ifdef _M_X64
+	LARGE_INTEGER unk;
+#endif
 } SYSTEM_THREAD, *PSYSTEM_THREAD;
+
+typedef struct _SYSTEM_BASIC_INFORMATION {
+    ULONG Reserved;
+    ULONG TimerResolution;
+    ULONG PageSize;
+    ULONG NumberOfPhysicalPages;
+    ULONG LowestPhysicalPageNumber;
+    ULONG HighestPhysicalPageNumber;
+    ULONG AllocationGranularity;
+    ULONG MinimumUserModeAddress;
+    ULONG MaximumUserModeAddress;
+    ULONG ActiveProcessorsAffinityMask;
+    UCHAR NumberOfProcessors;
+} SYSTEM_BASIC_INFORMATION, *PSYSTEM_BASIC_INFORMATION;
 
 typedef struct _SYSTEM_PROCESS_INFORMATION {
 	ULONG NextEntryOffset;
@@ -300,6 +321,13 @@ typedef struct _PEB_F32 {
 } PEB_F32, *PPEB_F32;
 #endif
 
+typedef struct _KERNEL_USER_TIMES {
+  LARGE_INTEGER CreateTime;
+  LARGE_INTEGER ExitTime;
+  LARGE_INTEGER KernelTime;
+  LARGE_INTEGER UserTime;
+} KERNEL_USER_TIMES, *PKERNEL_USER_TIMES;
+
 typedef struct _PROCESS_BASIC_INFORMATION {
 	NTSTATUS ExitStatus;
 	PPEB PebBaseAddress;
@@ -330,6 +358,7 @@ typedef struct _RTL_PROCESS_MODULES
 } RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
 
 extern NTSTATUS WINAPI NtQuerySystemInformation(IN SYSTEM_INFORMATION_CLASS SystemInformationClass, OUT PVOID SystemInformation, IN ULONG SystemInformationLength, OUT OPTIONAL PULONG ReturnLength);
+extern NTSTATUS WINAPI NtSetSystemInformation(IN SYSTEM_INFORMATION_CLASS SystemInformationClass, IN PVOID SystemInformation, IN ULONG SystemInformationLength);
 extern NTSTATUS WINAPI NtQueryInformationProcess(IN HANDLE ProcessHandle, IN PROCESSINFOCLASS ProcessInformationClass, OUT PVOID ProcessInformation, OUT ULONG ProcessInformationLength, OUT OPTIONAL PULONG ReturnLength);
 extern NTSTATUS WINAPI NtSuspendProcess(IN HANDLE ProcessHandle);
 extern NTSTATUS WINAPI NtResumeProcess(IN HANDLE ProcessHandle);
@@ -411,3 +440,6 @@ typedef enum _KULL_M_PROCESS_CREATE_TYPE {
 } KULL_M_PROCESS_CREATE_TYPE;
 
 BOOL kull_m_process_create(KULL_M_PROCESS_CREATE_TYPE type, PCWSTR commandLine, DWORD processFlags, HANDLE hToken, DWORD logonFlags, PCWSTR user, PCWSTR domain, PCWSTR password, PPROCESS_INFORMATION pProcessInfos, BOOL autoCloseHandle);
+
+BOOL kull_m_process_getUnicodeString(IN PUNICODE_STRING string, IN PKULL_M_MEMORY_HANDLE source);
+BOOL kull_m_process_getSid(IN PSID * pSid, IN PKULL_M_MEMORY_HANDLE source);

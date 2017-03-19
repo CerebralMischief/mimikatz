@@ -25,6 +25,11 @@
 #endif
 #include "modules/dpapi/kuhl_m_dpapi.h"
 #include "modules/kuhl_m_kernel.h"
+#include "modules/kuhl_m_busylight.h"
+#include "modules/kuhl_m_sysenvvalue.h"
+#include "modules/kuhl_m_sid.h"
+#include "modules/kuhl_m_iis.h"
+#include "modules/kuhl_m_rpc.h"
 
 #include <io.h>
 #include <fcntl.h>
@@ -32,10 +37,12 @@
 extern VOID WINAPI RtlGetNtVersionNumbers(LPDWORD pMajor, LPDWORD pMinor, LPDWORD pBuild);
 
 int wmain(int argc, wchar_t * argv[]);
+void mimikatz_begin();
+void mimikatz_end();
 
 BOOL WINAPI HandlerRoutine(DWORD dwCtrlType);
 
-NTSTATUS mimikatz_initOrClean();
+NTSTATUS mimikatz_initOrClean(BOOL Init);
 
 NTSTATUS mimikatz_doLocal(wchar_t * input);
 NTSTATUS mimikatz_dispatchCommand(wchar_t * input);

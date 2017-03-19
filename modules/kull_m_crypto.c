@@ -12,8 +12,22 @@ BOOL kull_m_crypto_hash(ALG_ID algid, LPCVOID data, DWORD dataLen, LPVOID hash, 
 	HCRYPTHASH hHash;
 	DWORD hashLen;
 	PBYTE buffer;
+	PKERB_CHECKSUM pCheckSum;
+	PVOID Context;
 
-	if(CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+	if(algid == CALG_CRC32)
+	{
+		if((hashWanted == sizeof(DWORD)) && NT_SUCCESS(CDLocateCheckSum(KERB_CHECKSUM_REAL_CRC32, &pCheckSum)))
+		{
+			if(NT_SUCCESS(pCheckSum->Initialize(0, &Context)))
+			{
+				pCheckSum->Sum(Context, dataLen, data);
+				status = NT_SUCCESS(pCheckSum->Finalize(Context, hash));
+				pCheckSum->Finish(&Context);
+			}
+		}
+	}
+	else if(CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
 	{
 		if(CryptCreateHash(hProv, algid, 0, 0, &hHash))
 		{
@@ -24,7 +38,7 @@ BOOL kull_m_crypto_hash(ALG_ID algid, LPCVOID data, DWORD dataLen, LPVOID hash, 
 					if(buffer = (PBYTE) LocalAlloc(LPTR, hashLen))
 					{
 						status = CryptGetHashParam(hHash, HP_HASHVAL, buffer, &hashLen, 0);
-						RtlCopyMemory(hash, buffer, KIWI_MINIMUM(hashLen, hashWanted));
+						RtlCopyMemory(hash, buffer, min(hashLen, hashWanted));
 						LocalFree(buffer);
 					}
 				}
@@ -81,7 +95,7 @@ BOOL kull_m_crypto_DeriveKeyRaw(ALG_ID hashId, LPVOID hash, DWORD hashLen, LPVOI
 		}
 		if(kull_m_crypto_hash(hashId, ipad, sizeof(ipad), buffer, hashLen))
 			if(status = kull_m_crypto_hash(hashId, opad, sizeof(opad), buffer + hashLen, hashLen))
-				RtlCopyMemory(key, buffer, KIWI_MINIMUM(keyLen, 2 * hashLen));
+				RtlCopyMemory(key, buffer, min(keyLen, 2 * hashLen));
 	}
 	return status;
 }
@@ -143,7 +157,7 @@ BOOL kull_m_crypto_hmac(DWORD calgid, LPCVOID key, DWORD keyLen, LPCVOID message
 							if(buffer = (PBYTE) LocalAlloc(LPTR, hashLen))
 							{
 								status = CryptGetHashParam(hHash, HP_HASHVAL, buffer, &hashLen, 0);
-								RtlCopyMemory(hash, buffer, KIWI_MINIMUM(hashLen, hashWanted));
+								RtlCopyMemory(hash, buffer, min(hashLen, hashWanted));
 								LocalFree(buffer);
 							}
 						}
@@ -191,7 +205,7 @@ BOOL kull_m_crypto_pkcs5_pbkdf2_hmac(DWORD calgid, LPCVOID password, DWORD passw
 									if(isDpapiInternal) // thank you MS!
 										RtlCopyMemory(d1, obuf, sizeHmac);
 								}
-								r = KIWI_MINIMUM(keyLen, sizeHmac);
+								r = min(keyLen, sizeHmac);
 								RtlCopyMemory(key, obuf, r);
 								key += r;
 								keyLen -= r;
@@ -467,50 +481,126 @@ NTSTATUS kull_m_crypto_get_dcc(PBYTE dcc, PBYTE ntlm, PUNICODE_STRING Username, 
 	return status;
 }
 
-
-const DWORD kull_m_crypto_crc32_tab[] = {
-	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
-	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
-	0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de,	0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
-	0x136c9856, 0x646ba8c0, 0xfd62f97a, 0x8a65c9ec,	0x14015c4f, 0x63066cd9, 0xfa0f3d63, 0x8d080df5,
-	0x3b6e20c8, 0x4c69105e, 0xd56041e4, 0xa2677172, 0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
-	0x35b5a8fa, 0x42b2986c, 0xdbbbc9d6, 0xacbcf940,	0x32d86ce3, 0x45df5c75, 0xdcd60dcf, 0xabd13d59,
-	0x26d930ac, 0x51de003a, 0xc8d75180, 0xbfd06116, 0x21b4f4b5, 0x56b3c423, 0xcfba9599, 0xb8bda50f,
-	0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924, 0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d,
-	0x76dc4190, 0x01db7106, 0x98d220bc, 0xefd5102a, 0x71b18589, 0x06b6b51f, 0x9fbfe4a5, 0xe8b8d433,
-	0x7807c9a2, 0x0f00f934, 0x9609a88e, 0xe10e9818, 0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
-	0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e, 0x6c0695ed, 0x1b01a57b, 0x8208f4c1, 0xf50fc457,
-	0x65b0d9c6, 0x12b7e950, 0x8bbeb8ea, 0xfcb9887c, 0x62dd1ddf, 0x15da2d49, 0x8cd37cf3, 0xfbd44c65,
-	0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2, 0x4adfa541, 0x3dd895d7, 0xa4d1c46d, 0xd3d6f4fb,
-	0x4369e96a, 0x346ed9fc, 0xad678846, 0xda60b8d0, 0x44042d73, 0x33031de5, 0xaa0a4c5f, 0xdd0d7cc9,
-	0x5005713c, 0x270241aa, 0xbe0b1010, 0xc90c2086, 0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
-	0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4, 0x59b33d17, 0x2eb40d81, 0xb7bd5c3b, 0xc0ba6cad,
-	0xedb88320, 0x9abfb3b6, 0x03b6e20c, 0x74b1d29a, 0xead54739, 0x9dd277af, 0x04db2615, 0x73dc1683,
-	0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8, 0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1,
-	0xf00f9344, 0x8708a3d2, 0x1e01f268, 0x6906c2fe, 0xf762575d, 0x806567cb, 0x196c3671, 0x6e6b06e7,
-	0xfed41b76, 0x89d32be0, 0x10da7a5a, 0x67dd4acc, 0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
-	0xd6d6a3e8, 0xa1d1937e, 0x38d8c2c4, 0x4fdff252, 0xd1bb67f1, 0xa6bc5767, 0x3fb506dd, 0x48b2364b,
-	0xd80d2bda, 0xaf0a1b4c, 0x36034af6, 0x41047a60, 0xdf60efc3, 0xa867df55, 0x316e8eef, 0x4669be79,
-	0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236, 0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f,
-	0xc5ba3bbe, 0xb2bd0b28, 0x2bb45a92, 0x5cb36a04, 0xc2d7ffa7, 0xb5d0cf31, 0x2cd99e8b, 0x5bdeae1d,
-	0x9b64c2b0, 0xec63f226, 0x756aa39c, 0x026d930a, 0x9c0906a9, 0xeb0e363f, 0x72076785, 0x05005713,
-	0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38, 0x92d28e9b, 0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21,
-	0x86d3d2d4, 0xf1d4e242, 0x68ddb3f8, 0x1fda836e, 0x81be16cd, 0xf6b9265b, 0x6fb077e1, 0x18b74777,
-	0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c, 0x8f659eff, 0xf862ae69, 0x616bffd3, 0x166ccf45,
-	0xa00ae278, 0xd70dd2ee, 0x4e048354, 0x3903b3c2, 0xa7672661, 0xd06016f7, 0x4969474d, 0x3e6e77db,
-	0xaed16a4a, 0xd9d65adc, 0x40df0b66, 0x37d83bf0, 0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
-	0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605, 0xcdd70693, 0x54de5729, 0x23d967bf,
-	0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
-};
-
-DWORD kull_m_crypto_crc32(DWORD startCrc, LPCVOID data, DWORD size)
+BOOL kull_m_crypto_genericAES128Decrypt(LPCVOID pKey, LPCVOID pIV, LPCVOID pData, DWORD dwDataLen, LPVOID *pOut, DWORD *dwOutLen)
 {
-	LPCBYTE ptr;
-	ptr = (LPCBYTE) data;
-	startCrc = startCrc ^ ~0u;
-	while (size--)
-		startCrc = kull_m_crypto_crc32_tab[(startCrc ^ *ptr++) & 0xff] ^ (startCrc >> 8);
-	return startCrc ^ ~0u;
+	BOOL status = FALSE;
+	HCRYPTPROV hProv;
+	HCRYPTKEY hKey;
+	DWORD mode = CRYPT_MODE_CBC;
+
+	if(CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+	{
+		if(kull_m_crypto_hkey(hProv, CALG_AES_128, pKey, 16, 0, &hKey, NULL))
+		{
+			if(CryptSetKeyParam(hKey, KP_MODE, (LPCBYTE) &mode, 0))
+			{
+				if(CryptSetKeyParam(hKey, KP_IV, (LPCBYTE) pIV, 0))
+				{
+					if(*pOut = LocalAlloc(LPTR, dwDataLen))
+					{
+						*dwOutLen = dwDataLen;
+						RtlCopyMemory(*pOut, pData, dwDataLen);
+						if(!(status = CryptDecrypt(hKey, 0, TRUE, 0, (PBYTE) *pOut, dwOutLen)))
+						{
+							PRINT_ERROR_AUTO(L"CryptDecrypt");
+							*pOut = LocalFree(*pOut);
+							*dwOutLen = 0;
+						}
+					}
+				}
+				else PRINT_ERROR_AUTO(L"CryptSetKeyParam (IV)");
+			}
+			else PRINT_ERROR_AUTO(L"CryptSetKeyParam (MODE)");
+			CryptDestroyKey(hKey);
+		}
+		else PRINT_ERROR_AUTO(L"kull_m_crypto_hkey");
+		CryptReleaseContext(hProv, 0);
+	}
+	else PRINT_ERROR_AUTO(L"CryptAcquireContext");
+	return status;
+}
+
+BOOL kull_m_crypto_exportPfx(HCERTSTORE hStore, LPCWSTR filename)
+{
+	BOOL isExported = FALSE;
+	CRYPT_DATA_BLOB bDataBlob = {0, NULL};
+	if(PFXExportCertStoreEx(hStore, &bDataBlob, MIMIKATZ, NULL, EXPORT_PRIVATE_KEYS | REPORT_NOT_ABLE_TO_EXPORT_PRIVATE_KEY))
+	{
+		if(bDataBlob.pbData = (BYTE *) LocalAlloc(LPTR, bDataBlob.cbData))
+		{
+			if(PFXExportCertStoreEx(hStore, &bDataBlob, MIMIKATZ, NULL, EXPORT_PRIVATE_KEYS | REPORT_NOT_ABLE_TO_EXPORT_PRIVATE_KEY))
+				isExported = kull_m_file_writeData(filename, bDataBlob.pbData, bDataBlob.cbData);
+			LocalFree(bDataBlob.pbData);
+		}
+	}
+	if(!isExported)
+		PRINT_ERROR_AUTO(L"PFXExportCertStoreEx");
+	return isExported;
+}
+
+BOOL kull_m_crypto_DerAndKeyToPfx(LPCVOID der, DWORD derLen, LPCVOID key, DWORD keyLen, BOOL isPvk, LPCWSTR filename) // no PVK support at this time
+{
+	BOOL isExported = FALSE;
+	CRYPT_KEY_PROV_INFO infos = {NULL, MS_ENHANCED_PROV, PROV_RSA_FULL, 0, 0, NULL, AT_KEYEXCHANGE};
+	HCRYPTPROV hCryptProv;
+	HCRYPTKEY hCryptKey;
+	if(infos.pwszContainerName = kull_m_string_getRandomGUID())
+	{
+		if(CryptAcquireContext(&hCryptProv, infos.pwszContainerName, infos.pwszProvName, infos.dwProvType, CRYPT_NEWKEYSET))
+		{
+			if(CryptImportKey(hCryptProv, (LPCBYTE) key,  keyLen, 0, CRYPT_EXPORTABLE, &hCryptKey))
+			{
+				isExported = kull_m_crypto_DerAndKeyInfoToPfx(der, derLen, &infos, filename);
+				CryptDestroyKey(hCryptKey);
+			}
+			else PRINT_ERROR_AUTO(L"CryptImportKey");
+			CryptReleaseContext(hCryptProv, 0);
+			if(!CryptAcquireContext(&hCryptProv, infos.pwszContainerName, NULL, PROV_RSA_FULL, CRYPT_DELETEKEYSET))
+				PRINT_ERROR(L"Unable to delete temp keyset %s\n", infos.pwszContainerName);
+		}
+		else PRINT_ERROR_AUTO(L"CryptAcquireContext");
+		LocalFree(infos.pwszContainerName);
+	}
+	return isExported;
+}
+
+BOOL kull_m_crypto_DerAndKeyInfoToPfx(LPCVOID der, DWORD derLen, PCRYPT_KEY_PROV_INFO pInfo, LPCWSTR filename)
+{
+	BOOL isExported = FALSE;
+	HCERTSTORE hTempStore;
+	PCCERT_CONTEXT pCertContext;
+	if(hTempStore = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, CERT_STORE_CREATE_NEW_FLAG, NULL))
+	{
+		if(CertAddEncodedCertificateToStore(hTempStore, X509_ASN_ENCODING, (LPCBYTE) der, derLen, CERT_STORE_ADD_NEW, &pCertContext))
+		{
+			if(CertSetCertificateContextProperty(pCertContext, CERT_KEY_PROV_INFO_PROP_ID, 0, (LPCVOID) pInfo))
+				isExported = kull_m_crypto_exportPfx(hTempStore, filename);
+			else PRINT_ERROR_AUTO(L"CertSetCertificateContextProperty(CERT_KEY_PROV_INFO_PROP_ID)");
+			CertFreeCertificateContext(pCertContext);
+		}
+		else PRINT_ERROR_AUTO(L"CertAddEncodedCertificateToStore");
+		CertCloseStore(hTempStore, CERT_CLOSE_STORE_FORCE_FLAG);
+	}
+	return isExported;
+}
+
+BOOL kull_m_crypto_DerAndKeyInfoToStore(LPCVOID der, DWORD derLen, PCRYPT_KEY_PROV_INFO pInfo, DWORD systemStore, LPCWSTR store, BOOL force)
+{
+	BOOL status = FALSE;
+	HCERTSTORE hTempStore;
+	PCCERT_CONTEXT pCertContext;
+	if(hTempStore = CertOpenStore(CERT_STORE_PROV_SYSTEM, 0, 0, CERT_STORE_OPEN_EXISTING_FLAG | systemStore, store))
+	{
+		if(CertAddEncodedCertificateToStore(hTempStore, X509_ASN_ENCODING, (LPCBYTE) der, derLen, force ? CERT_STORE_ADD_ALWAYS : CERT_STORE_ADD_NEW, &pCertContext))
+		{
+			if(!(status = CertSetCertificateContextProperty(pCertContext, CERT_KEY_PROV_INFO_PROP_ID, 0, (LPCVOID) pInfo)))
+				PRINT_ERROR_AUTO(L"CertSetCertificateContextProperty(CERT_KEY_PROV_INFO_PROP_ID)");
+			CertFreeCertificateContext(pCertContext);
+		}
+		else PRINT_ERROR_AUTO(L"CertAddEncodedCertificateToStore");
+		CertCloseStore(hTempStore, CERT_CLOSE_STORE_FORCE_FLAG);
+	}
+	return status;
 }
 
 const KULL_M_CRYPTO_DUAL_STRING_DWORD kull_m_crypto_system_stores[] = {
@@ -610,6 +700,99 @@ const KULL_M_CRYPTO_DUAL_STRING_DWORD kull_m_crypto_calgid[] = {
 	{L"CALG_ECDSA",					CALG_ECDSA},
 };
 
+const KULL_M_CRYPTO_DUAL_STRING_DWORD kull_m_crypto_cert_prop_id[] = {
+	{L"CERT_KEY_PROV_HANDLE_PROP_ID",						CERT_KEY_PROV_HANDLE_PROP_ID},
+	{L"CERT_KEY_PROV_INFO_PROP_ID",							CERT_KEY_PROV_INFO_PROP_ID},
+	{L"CERT_SHA1_HASH_PROP_ID",								CERT_SHA1_HASH_PROP_ID},
+	{L"CERT_MD5_HASH_PROP_ID",								CERT_MD5_HASH_PROP_ID},
+	{L"CERT_HASH_PROP_ID",									CERT_HASH_PROP_ID},
+	{L"CERT_KEY_CONTEXT_PROP_ID",							CERT_KEY_CONTEXT_PROP_ID},
+	{L"CERT_KEY_SPEC_PROP_ID",								CERT_KEY_SPEC_PROP_ID},
+	{L"CERT_IE30_RESERVED_PROP_ID",							CERT_IE30_RESERVED_PROP_ID},
+	{L"CERT_PUBKEY_HASH_RESERVED_PROP_ID",					CERT_PUBKEY_HASH_RESERVED_PROP_ID},
+	{L"CERT_ENHKEY_USAGE_PROP_ID",							CERT_ENHKEY_USAGE_PROP_ID},
+	{L"CERT_CTL_USAGE_PROP_ID",								CERT_ENHKEY_USAGE_PROP_ID},
+	{L"CERT_NEXT_UPDATE_LOCATION_PROP_ID",					CERT_NEXT_UPDATE_LOCATION_PROP_ID},
+	{L"CERT_FRIENDLY_NAME_PROP_ID",							CERT_FRIENDLY_NAME_PROP_ID},
+	{L"CERT_PVK_FILE_PROP_ID",								CERT_PVK_FILE_PROP_ID},
+	{L"CERT_DESCRIPTION_PROP_ID",							CERT_DESCRIPTION_PROP_ID},
+	{L"CERT_ACCESS_STATE_PROP_ID",							CERT_ACCESS_STATE_PROP_ID},
+	{L"CERT_SIGNATURE_HASH_PROP_ID",						CERT_SIGNATURE_HASH_PROP_ID},
+	{L"CERT_SMART_CARD_DATA_PROP_ID",						CERT_SMART_CARD_DATA_PROP_ID},
+	{L"CERT_EFS_PROP_ID",									CERT_EFS_PROP_ID},
+	{L"CERT_FORTEZZA_DATA_PROP_ID",							CERT_FORTEZZA_DATA_PROP_ID},
+	{L"CERT_ARCHIVED_PROP_ID",								CERT_ARCHIVED_PROP_ID},
+	{L"CERT_KEY_IDENTIFIER_PROP_ID",						CERT_KEY_IDENTIFIER_PROP_ID},
+	{L"CERT_AUTO_ENROLL_PROP_ID",							CERT_AUTO_ENROLL_PROP_ID},
+	{L"CERT_PUBKEY_ALG_PARA_PROP_ID",						CERT_PUBKEY_ALG_PARA_PROP_ID},
+	{L"CERT_CROSS_CERT_DIST_POINTS_PROP_ID",				CERT_CROSS_CERT_DIST_POINTS_PROP_ID},
+	{L"CERT_ISSUER_PUBLIC_KEY_MD5_HASH_PROP_ID",			CERT_ISSUER_PUBLIC_KEY_MD5_HASH_PROP_ID},
+	{L"CERT_SUBJECT_PUBLIC_KEY_MD5_HASH_PROP_ID",			CERT_SUBJECT_PUBLIC_KEY_MD5_HASH_PROP_ID},
+	{L"CERT_ENROLLMENT_PROP_ID",							CERT_ENROLLMENT_PROP_ID},
+	{L"CERT_DATE_STAMP_PROP_ID",							CERT_DATE_STAMP_PROP_ID},
+	{L"CERT_ISSUER_SERIAL_NUMBER_MD5_HASH_PROP_ID",			CERT_ISSUER_SERIAL_NUMBER_MD5_HASH_PROP_ID},
+	{L"CERT_SUBJECT_NAME_MD5_HASH_PROP_ID",					CERT_SUBJECT_NAME_MD5_HASH_PROP_ID},
+	{L"CERT_EXTENDED_ERROR_INFO_PROP_ID",					CERT_EXTENDED_ERROR_INFO_PROP_ID},
+	{L"CERT_cert_file_element",								CERT_cert_file_element},
+	{L"CERT_crl_file_element",								CERT_crl_file_element},
+	{L"CERT_ctl_file_element",								CERT_ctl_file_element},
+	{L"CERT_keyid_file_element",							CERT_keyid_file_element},
+	// 36 - 62 future elements IDs
+	// 63 ?
+	{L"CERT_RENEWAL_PROP_ID",								CERT_RENEWAL_PROP_ID},
+	{L"CERT_ARCHIVED_KEY_HASH_PROP_ID",						CERT_ARCHIVED_KEY_HASH_PROP_ID},
+	{L"CERT_AUTO_ENROLL_RETRY_PROP_ID",						CERT_AUTO_ENROLL_RETRY_PROP_ID},
+	{L"CERT_AIA_URL_RETRIEVED_PROP_ID",						CERT_AIA_URL_RETRIEVED_PROP_ID},
+	{L"CERT_AUTHORITY_INFO_ACCESS_PROP_ID",					CERT_AUTHORITY_INFO_ACCESS_PROP_ID},
+	{L"CERT_BACKED_UP_PROP_ID",								CERT_BACKED_UP_PROP_ID},
+	{L"CERT_OCSP_RESPONSE_PROP_ID",							CERT_OCSP_RESPONSE_PROP_ID},
+	{L"CERT_REQUEST_ORIGINATOR_PROP_ID",					CERT_REQUEST_ORIGINATOR_PROP_ID},
+	{L"CERT_SOURCE_LOCATION_PROP_ID",						CERT_SOURCE_LOCATION_PROP_ID},
+	{L"CERT_SOURCE_URL_PROP_ID",							CERT_SOURCE_URL_PROP_ID},
+	{L"CERT_NEW_KEY_PROP_ID",								CERT_NEW_KEY_PROP_ID},
+	{L"CERT_OCSP_CACHE_PREFIX_PROP_ID",						CERT_OCSP_CACHE_PREFIX_PROP_ID},
+	{L"CERT_SMART_CARD_ROOT_INFO_PROP_ID",					CERT_SMART_CARD_ROOT_INFO_PROP_ID},
+	{L"CERT_NO_AUTO_EXPIRE_CHECK_PROP_ID",					CERT_NO_AUTO_EXPIRE_CHECK_PROP_ID},
+	{L"CERT_NCRYPT_KEY_HANDLE_PROP_ID",						CERT_NCRYPT_KEY_HANDLE_PROP_ID},
+	{L"CERT_HCRYPTPROV_OR_NCRYPT_KEY_HANDLE_PROP_ID",		CERT_HCRYPTPROV_OR_NCRYPT_KEY_HANDLE_PROP_ID},
+	{L"CERT_SUBJECT_INFO_ACCESS_PROP_ID",					CERT_SUBJECT_INFO_ACCESS_PROP_ID},
+	{L"CERT_CA_OCSP_AUTHORITY_INFO_ACCESS_PROP_ID",			CERT_CA_OCSP_AUTHORITY_INFO_ACCESS_PROP_ID},
+	{L"CERT_CA_DISABLE_CRL_PROP_ID",						CERT_CA_DISABLE_CRL_PROP_ID},
+	{L"CERT_ROOT_PROGRAM_CERT_POLICIES_PROP_ID",			CERT_ROOT_PROGRAM_CERT_POLICIES_PROP_ID},
+	{L"CERT_ROOT_PROGRAM_NAME_CONSTRAINTS_PROP_ID",			CERT_ROOT_PROGRAM_NAME_CONSTRAINTS_PROP_ID},
+	{L"CERT_SUBJECT_OCSP_AUTHORITY_INFO_ACCESS_PROP_ID",	85},
+	{L"CERT_SUBJECT_DISABLE_CRL_PROP_ID",					86},
+	{L"CERT_CEP_PROP_ID",									87},
+	{L"CERT_original_CEP_PROP_ID",							88},
+	{L"CERT_SIGN_HASH_CNG_ALG_PROP_ID",						89},
+	{L"CERT_SCARD_PIN_ID_PROP_ID",							90},
+	{L"CERT_SCARD_PIN_INFO_PROP_ID",						91},
+	{L"CERT_SUBJECT_PUB_KEY_BIT_LENGTH_PROP_ID",			92},
+	{L"CERT_PUB_KEY_CNG_ALG_BIT_LENGTH_PROP_ID",			93},
+	{L"CERT_ISSUER_PUB_KEY_BIT_LENGTH_PROP_ID",				94},
+	{L"CERT_ISSUER_CHAIN_SIGN_HASH_CNG_ALG_PROP_ID",		95},
+	{L"CERT_ISSUER_CHAIN_PUB_KEY_CNG_ALG_BIT_LENGTH_PROP_ID",	96},
+	{L"CERT_NO_EXPIRE_NOTIFICATION_PROP_ID",				97},
+	{L"CERT_AUTH_ROOT_SHA256_HASH_PROP_ID",					98},
+	{L"CERT_NCRYPT_KEY_HANDLE_TRANSFER_PROP_ID",			99},
+	{L"CERT_HCRYPTPROV_TRANSFER_PROP_ID",					100},
+	{L"CERT_SMART_CARD_READER_PROP_ID",						101}, //string
+	{L"CERT_SEND_AS_TRUSTED_ISSUER_PROP_ID",				102}, //boolean
+	{L"CERT_KEY_REPAIR_ATTEMPTED_PROP_ID",					103}, // FILETME
+	{L"CERT_DISALLOWED_FILETIME_PROP_ID",					104},
+	{L"CERT_ROOT_PROGRAM_CHAIN_POLICIES_PROP_ID",			105},
+	{L"CERT_SMART_CARD_READER_NON_REMOVABLE_PROP_ID",		106}, // boolean
+	{L"CERT_SHA256_HASH_PROP_ID",							107},
+	{L"CERT_SCEP_SERVER_CERTS_PROP_ID",						108}, // Pkcs7
+	{L"CERT_SCEP_RA_SIGNATURE_CERT_PROP_ID",				109}, // sha1 Thumbprint
+	{L"CERT_SCEP_RA_ENCRYPTION_CERT_PROP_ID",				110}, // sha1 Thumbprint
+	{L"CERT_SCEP_CA_CERT_PROP_ID",							111}, // sha1 Thumbprint
+	{L"CERT_SCEP_SIGNER_CERT_PROP_ID",						112}, // sha1 Thumbprint
+	{L"CERT_SCEP_NONCE_PROP_ID",							113}, // blob
+	{L"CERT_SCEP_ENCRYPT_HASH_CNG_ALG_PROP_ID",				114}, // string: "CNGEncryptAlgId/CNGHashAlgId"  example: "3DES/SHA1"
+	{L"CERT_SCEP_FLAGS_PROP_ID",							115},
+};
+
 DWORD kull_m_crypto_system_store_to_dword(PCWSTR name)
 {
 	DWORD i;
@@ -628,6 +811,17 @@ DWORD kull_m_crypto_provider_type_to_dword(PCWSTR name)
 			if((_wcsicmp(name, kull_m_crypto_provider_types[i].name) == 0) || (_wcsicmp(name, kull_m_crypto_provider_types[i].name + 5) == 0))
 				return kull_m_crypto_provider_types[i].id;
 	return 0;
+}
+
+PCWSTR kull_m_crypto_provider_type_to_name(const DWORD dwProvType)
+{
+	DWORD i;
+	if(!dwProvType)
+		return L"PROV_cng" + 5;
+	for(i = 0; i < ARRAYSIZE(kull_m_crypto_provider_types); i++)
+		if(kull_m_crypto_provider_types[i].id == dwProvType)
+			return kull_m_crypto_provider_types[i].name + 5;
+	return NULL;
 }
 
 PCWCHAR kull_m_crypto_provider_to_realname(PCWSTR name)
@@ -662,4 +856,174 @@ PCWCHAR kull_m_crypto_algid_to_name(ALG_ID algid)
 		if(kull_m_crypto_calgid[i].id == algid)
 			return kull_m_crypto_calgid[i].name;
 	return NULL;
+}
+
+ALG_ID kull_m_crypto_name_to_algid(PCWSTR name)
+{
+	DWORD i;
+	if(name)
+		for(i = 0; i < ARRAYSIZE(kull_m_crypto_calgid); i++)
+			if((_wcsicmp(name, kull_m_crypto_calgid[i].name) == 0) || (_wcsicmp(name, kull_m_crypto_calgid[i].name + 5) == 0))
+				return kull_m_crypto_calgid[i].id;
+	return 0;
+}
+
+PCWCHAR kull_m_crypto_cert_prop_id_to_name(const DWORD propId)
+{
+	DWORD i;
+	PCWCHAR result = NULL;
+	for(i = 0; i < ARRAYSIZE(kull_m_crypto_cert_prop_id); i++)
+		if(kull_m_crypto_cert_prop_id[i].id == propId)
+		{
+			result = kull_m_crypto_cert_prop_id[i].name;
+			break;
+		}
+
+	if(!result)
+	{
+		if((propId >= 36) && (propId <= 62))
+			result = L"CERT_unk_future_use";
+		else if(propId == 63)
+			result = L"CERT_unk_63_maybe_future_use";
+		else if ((propId >= 116) && (propId <= CERT_LAST_RESERVED_PROP_ID))
+			result = L"CERT_reserved_prop_id";
+		else if ((propId >= CERT_FIRST_USER_PROP_ID) && (propId <= CERT_LAST_USER_PROP_ID))
+			result = L"CERT_user_prop_id";
+	}
+	return result + 5;
+}
+
+const BYTE kull_m_crypto_dh_g_rgbPrime[] = {
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x81, 0x53, 0xe6, 0xec, 0x51, 0x66, 0x28, 0x49,
+	0xe6, 0x1f, 0x4b, 0x7c, 0x11, 0x24, 0x9f, 0xae, 0xa5, 0x9f, 0x89, 0x5a, 0xfb, 0x6b, 0x38, 0xee,
+	0xed, 0xb7, 0x06, 0xf4, 0xb6, 0x5c, 0xff, 0x0b, 0x6b, 0xed, 0x37, 0xa6, 0xe9, 0x42, 0x4c, 0xf4,
+	0xc6, 0x7e, 0x5e, 0x62, 0x76, 0xb5, 0x85, 0xe4, 0x45, 0xc2, 0x51, 0x6d, 0x6d, 0x35, 0xe1, 0x4f,
+	0x37, 0x14, 0x5f, 0xf2, 0x6d, 0x0a, 0x2b, 0x30, 0x1b, 0x43, 0x3a, 0xcd, 0xb3, 0x19, 0x95, 0xef,
+	0xdd, 0x04, 0x34, 0x8e, 0x79, 0x08, 0x4a, 0x51, 0x22, 0x9b, 0x13, 0x3b, 0xa6, 0xbe, 0x0b, 0x02,
+	0x74, 0xcc, 0x67, 0x8a, 0x08, 0x4e, 0x02, 0x29, 0xd1, 0x1c, 0xdc, 0x80, 0x8b, 0x62, 0xc6, 0xc4,
+	0x34, 0xc2, 0x68, 0x21, 0xa2, 0xda, 0x0f, 0xc9, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+};
+
+const BYTE kull_m_crypto_dh_g_rgbGenerator[] = {
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+const CERT_X942_DH_PARAMETERS kull_m_crypto_dh_GlobParameters = {
+		{sizeof(kull_m_crypto_dh_g_rgbPrime), (PBYTE) kull_m_crypto_dh_g_rgbPrime},
+		{sizeof(kull_m_crypto_dh_g_rgbGenerator), (PBYTE) kull_m_crypto_dh_g_rgbGenerator},
+		{0, NULL},
+		{0, NULL},
+		NULL
+};
+
+PKIWI_DH kull_m_crypto_dh_Delete(PKIWI_DH dh)
+{
+	if(dh)
+	{
+		if(dh->publicKey.pbPublicKey)
+			LocalFree(dh->publicKey.pbPublicKey);
+		if(dh->hPrivateKey)
+			CryptDestroyKey(dh->hPrivateKey);
+		if(dh->hSessionKey)
+			CryptDestroyKey(dh->hSessionKey);
+		if(dh->hProvParty)
+			CryptReleaseContext(dh->hProvParty, 0);
+		dh = (PKIWI_DH) LocalFree(dh);
+	}
+	return dh;
+}
+
+PKIWI_DH kull_m_crypto_dh_Create(ALG_ID targetSessionKeyType)
+{
+	PKIWI_DH dh = NULL;
+	BOOL status = FALSE;
+
+	if(dh = (PKIWI_DH) LocalAlloc(LPTR, sizeof(KIWI_DH)))
+	{
+		dh->publicKey.sessionType = targetSessionKeyType;
+		if(CryptAcquireContext(&dh->hProvParty, NULL, MS_ENH_DSS_DH_PROV, PROV_DSS_DH, CRYPT_VERIFYCONTEXT))
+			if(CryptGenKey(dh->hProvParty, CALG_DH_EPHEM, (1024 << 16) | CRYPT_EXPORTABLE | CRYPT_PREGEN, &dh->hPrivateKey))
+				if(CryptSetKeyParam(dh->hPrivateKey, KP_P, (PBYTE) &kull_m_crypto_dh_GlobParameters.p, 0))
+					if(CryptSetKeyParam(dh->hPrivateKey, KP_G, (PBYTE) &kull_m_crypto_dh_GlobParameters.g, 0))
+						if(CryptSetKeyParam(dh->hPrivateKey, KP_X, NULL, 0))
+							if(CryptExportKey(dh->hPrivateKey, 0, PUBLICKEYBLOB, 0, NULL, &dh->publicKey.cbPublicKey))
+								if(dh->publicKey.pbPublicKey = (PBYTE) LocalAlloc(LPTR, dh->publicKey.cbPublicKey))
+									status = CryptExportKey(dh->hPrivateKey, 0, PUBLICKEYBLOB, 0, dh->publicKey.pbPublicKey, &dh->publicKey.cbPublicKey);
+		if(!status)
+			dh = (PKIWI_DH) kull_m_crypto_dh_Delete(dh);
+	}
+	return dh;
+}
+
+BOOL kull_m_crypto_dh_CreateSessionKey(PKIWI_DH dh, PMIMI_PUBLICKEY publicKey)
+{
+	BOOL status = FALSE;
+	dh->hSessionKey = 0;
+	if(dh && publicKey)
+	{
+		if(dh->publicKey.sessionType == publicKey->sessionType)
+		{
+			if(CryptImportKey(dh->hProvParty, publicKey->pbPublicKey, publicKey->cbPublicKey, dh->hPrivateKey, 0, &dh->hSessionKey))
+			{
+				if(!(status = CryptSetKeyParam(dh->hSessionKey, KP_ALGID, (PBYTE) &dh->publicKey.sessionType, 0)))
+				{
+					PRINT_ERROR_AUTO(L"CryptSetKeyParam");
+					CryptDestroyKey(dh->hSessionKey);
+					dh->hSessionKey = 0;
+				}
+			}
+			else PRINT_ERROR_AUTO(L"CryptImportKey");
+
+		}
+		else PRINT_ERROR(L"Alg mismatch: DH - %s (%08x) / P - %s (%08x)\n", kull_m_crypto_algid_to_name(dh->publicKey.sessionType), dh->publicKey.sessionType, kull_m_crypto_algid_to_name(publicKey->sessionType), publicKey->sessionType);
+	}
+	return status;
+}
+
+BOOL kull_m_crypto_dh_simpleEncrypt(HCRYPTKEY key, LPVOID data, DWORD dataLen, LPVOID *out, DWORD *outLen)
+{
+	BOOL status = FALSE;
+	HCRYPTKEY hTmp;
+	*out = NULL;
+	*outLen = dataLen;
+	if(CryptDuplicateKey(key, NULL, 0, &hTmp))
+	{
+		if(CryptEncrypt(hTmp, 0, TRUE, 0, NULL, outLen, 0))
+		{
+			if(*out = LocalAlloc(LPTR, *outLen))
+			{
+				RtlCopyMemory(*out, data, dataLen);
+				if(!(status = CryptEncrypt(hTmp, 0, TRUE, 0, (PBYTE) *out, &dataLen, *outLen)))
+					*out = LocalFree(*out);
+			}
+		}
+		CryptDestroyKey(hTmp);
+	}
+	return status;
+}
+
+BOOL kull_m_crypto_dh_simpleDecrypt(HCRYPTKEY key, LPVOID data, DWORD dataLen, LPVOID *out, DWORD *outLen)
+{
+	BOOL status = FALSE;
+	HCRYPTKEY hTmp;
+	*out = NULL;
+	*outLen = dataLen;
+	if(CryptDuplicateKey(key, NULL, 0, &hTmp))
+	{
+		if(*out = LocalAlloc(LPTR, dataLen))
+		{
+			RtlCopyMemory(*out, data, dataLen);
+			if(!(status = CryptDecrypt(hTmp, 0, TRUE, 0, (PBYTE) *out, outLen)))
+				*out = LocalFree(*out);
+		}
+		CryptDestroyKey(hTmp);
+	}
+	return status;
 }
