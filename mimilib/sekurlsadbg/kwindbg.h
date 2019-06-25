@@ -7,6 +7,8 @@
 #include "kuhl_m_sekurlsa_utils.h"
 #include "kuhl_m_sekurlsa_nt6.h"
 #include "kuhl_m_sekurlsa_packages.h"
+#define DELAYIMP_INSECURE_WRITABLE_HOOKS
+#include <delayimp.h>
 
 USHORT NtBuildNumber;
 
@@ -30,7 +32,7 @@ USHORT NtBuildNumber;
 #define KUHL_SEKURLSA_CREDS_DISPLAY_DOMAIN				0x40000000
 #define KUHL_SEKURLSA_CREDS_DISPLAY_SSP					0x80000000
 
-#ifdef _M_X64
+#if defined(_M_X64) || defined(_M_ARM64) // TODO:ARM64
 #define SECDATA_KRBTGT_OFFSET	39
 #elif defined _M_IX86
 #define SECDATA_KRBTGT_OFFSET	47
@@ -59,10 +61,10 @@ typedef struct _KUHL_M_SEKURLSA_ENUM_HELPER {
 	ULONG offsetToLogonServer;
 } KUHL_M_SEKURLSA_ENUM_HELPER, *PKUHL_M_SEKURLSA_ENUM_HELPER;
 
-LPEXT_API_VERSION WDBGAPI ExtensionApiVersion (void);
-VOID CheckVersion(void);
-VOID WDBGAPI WinDbgExtensionDllInit (PWINDBG_EXTENSION_APIS lpExtensionApis, USHORT usMajorVersion, USHORT usMinorVersion);
-DECLARE_API(mimikatz);
+LPEXT_API_VERSION WDBGAPI kdbg_ExtensionApiVersion(void);
+VOID WDBGAPI kdbg_WinDbgExtensionDllInit (PWINDBG_EXTENSION_APIS lpExtensionApis, USHORT usMajorVersion, USHORT usMinorVersion);
+DECLARE_API(kdbg_coffee);
+DECLARE_API(kdbg_mimikatz);
 
 VOID kuhl_m_sekurlsa_genericCredsOutput(PKIWI_GENERIC_PRIMARY_CREDENTIAL mesCreds, PLUID luid, ULONG flags);
 VOID kuhl_m_sekurlsa_genericKeyOutput(struct _KIWI_CREDENTIAL_KEY * key);

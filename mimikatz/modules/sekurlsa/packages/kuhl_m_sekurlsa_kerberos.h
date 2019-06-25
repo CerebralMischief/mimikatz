@@ -74,6 +74,9 @@ typedef struct _KERB_INFOS {
 	LONG	offsetSizeOfCsp;
 	LONG	offsetNames;
 	SIZE_T	structCspInfosSize;
+
+	LONG	offsetPasswordErase;
+	SIZE_T	passwordEraseSize;
 } KERB_INFOS, *PKERB_INFOS;
 
 typedef struct _KERB_SMARTCARD_CSP_INFO_5 {
@@ -169,7 +172,7 @@ typedef struct _KIWI_KERBEROS_LOGON_SESSION_51 {
 	PVOID		unk6;
 	PVOID		unk7;
 	LUID		LocallyUniqueIdentifier;
-#ifdef _M_IX86
+#if defined(_M_IX86)
 	ULONG		unkAlign;
 #endif
 	FILETIME	unk8;
@@ -206,7 +209,7 @@ typedef struct _KIWI_KERBEROS_LOGON_SESSION {
 	PVOID		unk5;
 	PVOID		unk6;
 	LUID		LocallyUniqueIdentifier;
-#ifdef _M_IX86
+#if defined(_M_IX86)
 	ULONG		unkAlign;
 #endif
 	FILETIME	unk7;
@@ -261,7 +264,7 @@ typedef struct _KIWI_KERBEROS_LOGON_SESSION_10 {
 	PVOID		unk11;
 	PVOID		unk12;
 	PVOID		unk13;
-#ifdef _M_IX86
+#if defined(_M_IX86)
 	ULONG		unkAlign;
 #endif
 	KIWI_KERBEROS_10_PRIMARY_CREDENTIAL	credentials;
@@ -288,13 +291,22 @@ typedef struct _KIWI_KERBEROS_LOGON_SESSION_10 {
 	PVOID		SmartcardInfos;
 } KIWI_KERBEROS_LOGON_SESSION_10, *PKIWI_KERBEROS_LOGON_SESSION_10;
 
+typedef struct _KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607_ISO
+{
+	DWORD StructSize;
+	struct _LSAISO_DATA_BLOB *isoBlob; // aligned;
+} KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607_ISO, *PKIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607_ISO;
+
 typedef struct _KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607
 {
 	LSA_UNICODE_STRING UserName;
 	LSA_UNICODE_STRING Domaine;
-	PVOID		unk0;
-	DWORD		unk1; // 2
-	LSA_UNICODE_STRING Password;
+	PVOID		unkFunction;
+	DWORD		type; // or flags 2 = normal, 1 = ISO
+	union {
+		LSA_UNICODE_STRING Password;
+		KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607_ISO IsoPassword;
+	};
 } KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607, *PKIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607;
 
 typedef struct _KIWI_KERBEROS_LOGON_SESSION_10_1607 {
@@ -314,7 +326,7 @@ typedef struct _KIWI_KERBEROS_LOGON_SESSION_10_1607 {
 	PVOID		unk11;
 	PVOID		unk12;
 	PVOID		unk13;
-#ifdef _M_IX86
+#if defined(_M_IX86)
 	ULONG		unkAlign;
 #endif
 	KIWI_KERBEROS_10_PRIMARY_CREDENTIAL_1607	credentials;
